@@ -1,5 +1,5 @@
 """
-Revised DeviceAtlas API:
+Re-imagined DeviceAtlas API:
 
 >>> from deviceatlas import DeviceAtlas
 >>> DA = DeviceAtlas('/Users/johnboxall/git/device/DeviceAtlas.json')
@@ -7,7 +7,6 @@ Revised DeviceAtlas API:
 >>> n95 = DA.device(ua)
 >>> n95.model
 'N95'
->>> 
 
 """
 import simplejson
@@ -19,7 +18,7 @@ PROPERTY_MAP = dict(s=str, b=bool, i=int, d=str)
 
 class Device(dict):
     """
-    Thin wrapper around a `dict` that allows keys to be accessed like attributes.
+    Thin wrapper `dict` that allows keys to be accessed like attributes.
     Returns `None` if the accessed attribute does not exist.
     
     """
@@ -36,14 +35,15 @@ class Device(dict):
 class DeviceAtlas(object):
     def __init__(self, jsonpath):
         """
-        Open `jsonpath` and loader in.
+        Loads and initializes DA JSON from `jsonpath`.
+        
         """
         self.data = simplejson.load(open(jsonpath, 'r'))        
         # Turn the Device Atlas properties into a dictionary:
         # {<da_property_id>: (<property_name>, <python_type_function>), ... }
         self.data['properties'] = {}
         for index, value in enumerate(self.data['p']):
-            property_index = str(index)
+            property_index = str(index)  # DA properties are typed as strs
             property_name = value[1:]
             property_type = PROPERTY_MAP[value[0]]
             self.data['properties'][property_index] = (property_name, property_type)
@@ -52,20 +52,20 @@ class DeviceAtlas(object):
 
     def device(self, ua):
         """
-        Given a User-Agent string return a `Device` for that UA.
+        Returns a `Device` for a User-Agent string `ua`.
         
         """
         return Device(self._getProperties(ua.strip()))
 
     def _getProperties(self, ua):
         """
-        Given a User-Agent string return a `dict` of all known properties.
+        Returns a `dict` of device properties given a User-Agent string `ua`.
 
         """
         idProperties = {}
         matched = ''
         sought = None
-        sought, matched = self._seekProperties(self.data['t'], ua, idProperties, sought, matched)
+        sought, matched = self._seekProperties(ua, idProperties, sought, matched)
         properties = {}
         for index, value in idProperties.iteritems():
             properties[self.data['properties'][index][0]] = self.data['properties'][index][1](value)
@@ -73,38 +73,31 @@ class DeviceAtlas(object):
         properties['_unmatched'] = ua[len(matched):]
         return properties
 
-    def _seekProperties(self, node, string, properties, sought, matched):
+    def _seekProperties(self, unmatched, properties, sought, matched, node=None):
         """
-        Seek properties for a UA within a node
-        This is designed to be recursed, and only externally called with the
-        node representing the top of the tree
-
-        `node` is array
-        `string` is string
-        `properties` is properties found
-        `sought` is properties being sought
-        `matched` is part of UA that has been matched
-        
-        """        
-        unmatched = string
+        Seek properties for a UA within `node` starting at the top of the tree.
+                
+        """
+        if node is None:
+            node = self.data['t']
         
         if 'd' in node:
-            if sought != None and len(sought) == 0:
+            if sought is not None and len(sought) == 0:
                 return sought, matched
             for property, value in node['d'].iteritems():
-                if sought == None or sought.has_key(property):
+                if sought is None or property in sought:
                     properties[property] = value
-                if (sought != None and 
-                    ( (not node.has_key('m')) or (node.has_key('m') and (not node['m'].has_key(property)) ) ) ):
-                    if sought.has_key(property):
+                if sought is not None and \
+                   (('m' not in node) or ('m' in node and property not in node['m'])):
+                    if property in sought:
                         del sought[property]
-
+                        
         if 'c' in node:
-            for c in range(1, len(string)+1):
-                seek = string[0:c]
+            for c in range(1, len(unmatched)+1):
+                seek = unmatched[0:c]
                 if seek in node['c']:
                     matched += seek
-                    sought, matched = self._seekProperties(node['c'][seek], string[c:], properties, sought, matched)
+                    sought, matched = self._seekProperties(unmatched[c:], properties, sought, matched, node['c'][seek])
                     break
             
         return sought, matched
